@@ -847,7 +847,7 @@ export interface CredentialsApi {
 	 */
 	upsert(provider: string, credential: AuthCredential): Promise<AuthCredentialSnapshotEntry[]>;
 	/**
-	 * Remove credential for a provider.
+	 * Disable all active credentials for a provider, retaining stored tombstones.
 	 */
 	remove(provider: string): Promise<void>;
 	/**
@@ -859,8 +859,9 @@ export interface CredentialsApi {
 	/**
 	 * Disable the credential with the given id and emit a
 	 * {@link CredentialDisabledEvent}. Used by the auth-broker server to honour
-	 * `POST /v1/credential/:id/disable`. Resolves after persistence; returns
-	 * `false` when no active row with this ID exists.
+	 * `POST /v1/credential/:id/disable`. Always disables, never permanently deletes,
+	 * regardless of the cause. Returns `false` for a missing active row or a failed
+	 * local SQLite write; remote transport failures retain their rejection contract.
 	 */
 	disable(id: number, disabledCause: string): Promise<boolean>;
 	/**

@@ -1,6 +1,7 @@
 /** Terminal logout removes exactly one stored row, without authenticating it first. */
 import * as readline from "node:readline";
 import { type AuthStorage, getOAuthProviders } from "@oh-my-pi/pi-ai";
+import { AuthBrokerCredentialDeleteUnsupportedError } from "@oh-my-pi/pi-ai/auth-broker";
 import { formatProviderName } from "@oh-my-pi/pi-tui/chrome/format";
 import { getAgentDbPath, getProjectDir, sanitizeText } from "@oh-my-pi/pi-utils";
 import { ModelRegistry } from "../config/model-registry";
@@ -20,8 +21,8 @@ export interface LogoutFlowOptions {
 	refreshProvider: (provider: string, mode: "online") => Promise<void>;
 	/** Maps registered OAuth aliases onto their credential-storage provider. */
 	resolveProvider?: (provider: string) => string;
-	pickIndex: (title: string, labels: readonly string[]) => Promise<number | null>;
-	promptLine: (question: string) => Promise<string | null>;
+	pickIndex: (title: string, labels: readonly string[]) => Promise<number>;
+	promptLine: (question: string) => Promise<string>;
 	stdout: (text: string) => void;
 	stderr: (text: string) => void;
 	storageLocation: string;
@@ -66,11 +67,6 @@ export async function runLogoutFlow(
 				providers.map(id => `${formatProviderName(id)} (${sanitizeText(id)})`),
 			);
 			readingInput = false;
-			if (index === null) return cancel();
-			if (!Number.isInteger(index) || index < 0 || index >= providers.length) {
-				stderr("Logout failed: Invalid provider selection.\n");
-				return 1;
-			}
 			selectedProvider = providers[index];
 		} else {
 			const requested = normalized(provider);
@@ -103,11 +99,6 @@ export async function runLogoutFlow(
 				rows.map(accountLabel),
 			);
 			readingInput = false;
-			if (index === null) return cancel();
-			if (!Number.isInteger(index) || index < 0 || index >= rows.length) {
-				stderr("Logout failed: Invalid account selection.\n");
-				return 1;
-			}
 			selected = rows[index];
 		} else {
 			const selector = normalized(account);
@@ -136,7 +127,7 @@ export async function runLogoutFlow(
 			`Remove ${sanitizeText(selectedProvider)} account ${accountLabel(selected)}? [y/N] `,
 		);
 		readingInput = false;
-		if (answer === null || !["y", "yes"].includes(normalized(answer))) return cancel();
+		if (!["y", "yes"].includes(normalized(answer))) return cancel();
 
 		failure = "Could not delete the stored credential. No provider refresh was attempted.";
 		if (!(await storage.credentials.removeById(selectedProvider, selected.id))) {
@@ -163,6 +154,12 @@ export async function runLogoutFlow(
 		return result;
 	} catch (error) {
 		if (readingInput && error instanceof Error && error.message.startsWith("Login cancelled")) return cancel();
+		if (error instanceof AuthBrokerCredentialDeleteUnsupportedError) {
+			stderr(
+				"Logout failed: This auth broker does not support permanent credential deletion. Update the broker and try again.\n",
+			);
+			return 1;
+		}
 		// Storage, extensions and provider failures can contain credential material.
 		stderr(`Logout failed: ${failure}\n`);
 		return 1;

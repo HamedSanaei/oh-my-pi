@@ -32,7 +32,9 @@ import type {
 	CredentialBlockResponse,
 	CredentialBlockSnapshot,
 	CredentialBlocksDeleteResponse,
+	CredentialDeleteResponse,
 	CredentialDisableResponse,
+	CredentialNotFoundResponse,
 	CredentialRefreshResponse,
 	CredentialUploadRequest,
 	CredentialUploadResponse,
@@ -355,6 +357,20 @@ export const clientUsageSummaryResponseSchema: FluentType<ClientUsageSummaryResp
 export const credentialRefreshResponseSchema: FluentType<CredentialRefreshResponse> = type({
 	"+": "reject",
 	entry: credentialSnapshotEntrySchema,
+});
+
+// ─── Permanent deletion ──────────────────────────────────────────────────────
+
+export const credentialDeleteResponseSchema: FluentType<CredentialDeleteResponse> = type({
+	"+": "reject",
+	ok: "boolean",
+});
+
+export const credentialNotFoundResponseSchema: FluentType<CredentialNotFoundResponse> = type({
+	"+": "reject",
+	error: "string",
+	code: "'credential_not_found'",
+	id: "number.integer",
 });
 
 // ─── Disable ─────────────────────────────────────────────────────────────────

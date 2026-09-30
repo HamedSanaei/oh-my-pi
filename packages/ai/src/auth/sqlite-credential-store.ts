@@ -1478,10 +1478,16 @@ export class SqliteAuthCredentialStore implements AuthCredentialStore {
 	}
 
 	async deleteAuthCredential(id: number, disabledCause: string): Promise<boolean> {
-		const result =
-			disabledCause === "deleted by user"
-				? this.#hardDeleteStmt.run(id)
-				: this.#deleteStmt.run(normalizeDisabledCause(disabledCause), id);
+		try {
+			const result = this.#deleteStmt.run(normalizeDisabledCause(disabledCause), id);
+			return result.changes > 0;
+		} catch {
+			return false;
+		}
+	}
+
+	async hardDeleteAuthCredential(id: number): Promise<boolean> {
+		const result = this.#hardDeleteStmt.run(id);
 		return result.changes > 0;
 	}
 

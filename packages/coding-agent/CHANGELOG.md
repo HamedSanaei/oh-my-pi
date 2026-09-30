@@ -4,7 +4,11 @@
 
 ### Added
 
-- Added `omp logout [provider] [account]` to remove one stored credential with default-No confirmation, including disabled accounts, and report post-removal provider discovery failures.
+- Added `omp logout [provider] [account]` to remove one stored credential with default-No confirmation, including disabled accounts, and report post-removal provider discovery failures ([#13923](https://github.com/can1357/oh-my-pi/pull/13923) by [@HamedSanaei](https://github.com/HamedSanaei)).
+
+### Changed
+
+- Single-account `/logout` permanently removes the selected stored credential instead of retaining a recoverable disabled row; provider-wide logout still disables credentials ([#13923](https://github.com/can1357/oh-my-pi/pull/13923) by [@HamedSanaei](https://github.com/HamedSanaei)).
 
 ## [18.4.5] - 2026-09-30
 

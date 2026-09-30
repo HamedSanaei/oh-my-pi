@@ -646,7 +646,7 @@ export class CredentialPool implements CredentialsApi {
 			remainingEntries.map(entry => entry.credential),
 		);
 
-		const deleted = await this.#store.deleteAuthCredential(credentialId, "deleted by user");
+		const deleted = await this.#store.hardDeleteAuthCredential(credentialId);
 		if (!deleted) return false;
 		const generation = this.#generation;
 		this.reloadProvider(provider);

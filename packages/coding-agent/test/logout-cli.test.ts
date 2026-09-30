@@ -8,8 +8,9 @@ import {
 	type OAuthApi,
 	type OAuthCredential,
 } from "@oh-my-pi/pi-ai";
+import { AuthBrokerClient } from "@oh-my-pi/pi-ai/auth-broker";
 import { type LogoutFlowOptions, runLogoutFlow } from "../src/cli/logout-cli";
-import { promptLine } from "../src/cli/oauth-terminal";
+import { pickIndex, promptLine } from "../src/cli/oauth-terminal";
 import { collectLogoutCredentials, toLogoutAccounts } from "../src/slash-commands/helpers/logout";
 
 const ACCESS = "secret-access-token";
@@ -50,7 +51,9 @@ describe("terminal logout", () => {
 			storage,
 			isKnownProvider: provider => provider === "anthropic",
 			refreshProvider: refresh,
-			pickIndex: async () => null,
+			pickIndex: async () => {
+				throw new Error("Login cancelled");
+			},
 			promptLine: async () => "y",
 			stdout: text => {
 				output += text;
@@ -145,6 +148,8 @@ describe("terminal logout", () => {
 		expect(await runLogoutFlow("anthropic", String(target.id), options)).toBe(0);
 		expect(storage.credentials.list("anthropic").map(row => row.credential.type)).toEqual(["oauth"]);
 		expect(storage.credentials.list("different-provider")[0].id).toBe(foreign.id);
+		expect(refresh).toHaveBeenCalledTimes(1);
+		expect(refresh).toHaveBeenCalledWith("anthropic", "online");
 		expect(output).toContain(`API key #${target.id}`);
 		expect(output + errors).not.toContain(API_KEY);
 	});
@@ -236,14 +241,6 @@ describe("terminal logout", () => {
 		expect(output).toContain("Logout cancelled");
 	});
 
-	test("cancelled provider and account input leave all rows untouched", async () => {
-		await storage.credentials.set("anthropic", oauth({ accountId: "retained" }));
-		expect(await runLogoutFlow(undefined, undefined, options)).toBe(0);
-		expect(await runLogoutFlow("anthropic", undefined, options)).toBe(0);
-		expect(remove).not.toHaveBeenCalled();
-		expect(refresh).not.toHaveBeenCalled();
-	});
-
 	test("refresh failure reports the already committed deletion without leaking the exception", async () => {
 		await storage.credentials.set("anthropic", oauth({ accountId: "remove-me" }));
 		options.storageLocation = "auth broker";
@@ -252,6 +249,7 @@ describe("terminal logout", () => {
 		});
 		expect(await runLogoutFlow("anthropic", "remove-me", options)).toBe(1);
 		expect(storage.credentials.list("anthropic")).toEqual([]);
+		expect(await storage.credentials.listDisabled("anthropic")).toEqual([]);
 		expect(output).toContain("from auth broker");
 		expect(output).not.toContain("agent.db");
 		expect(errors).toContain("Credential removed, but provider refresh failed");
@@ -259,27 +257,47 @@ describe("terminal logout", () => {
 		for (const secret of [ACCESS, REFRESH, API_KEY]) expect(output + errors).not.toContain(secret);
 	});
 
-	test.each(["EOF", "Ctrl-C"])("%s during terminal confirmation cancels safely", async cancellation => {
+	test.each([
+		["provider", "EOF"],
+		["account", "EOF"],
+		["confirmation", "EOF"],
+		["provider", "Ctrl-C"],
+		["account", "Ctrl-C"],
+		["confirmation", "Ctrl-C"],
+	] as const)("%s input cancelled by %s leaves stored rows untouched", async (stage, cancellation) => {
 		await storage.credentials.set("anthropic", oauth({ accountId: "retained" }));
+		const row = storage.credentials.list("anthropic")[0];
 		const input = new PassThrough();
 		const terminalOutput = new PassThrough();
 		const rl = readline.createInterface({ input, output: terminalOutput, terminal: false });
-		options.promptLine = question => {
-			const answer = promptLine(rl, question);
+		const cancelInput = () => {
 			if (cancellation === "EOF") input.end();
 			else rl.emit("SIGINT");
+		};
+		options.pickIndex = (title, labels) => {
+			const selection = pickIndex(rl, title, labels);
+			cancelInput();
+			return selection;
+		};
+		options.promptLine = question => {
+			const answer = promptLine(rl, question);
+			cancelInput();
 			return answer;
 		};
 		try {
-			expect(await runLogoutFlow("anthropic", "retained", options)).toBe(0);
 			expect(
-				storage.credentials
-					.list("anthropic")
-					.map(row => row.credential.type === "oauth" && row.credential.accountId),
-			).toEqual(["retained"]);
+				await runLogoutFlow(
+					stage === "provider" ? undefined : "anthropic",
+					stage === "confirmation" ? "retained" : undefined,
+					options,
+				),
+			).toBe(0);
+			expect(storage.credentials.list("anthropic").map(row => row.id)).toEqual([row.id]);
+			expect(await storage.credentials.listDisabled("anthropic")).toEqual([]);
 			expect(remove).not.toHaveBeenCalled();
 			expect(refresh).not.toHaveBeenCalled();
 			expect(output).toContain("Logout cancelled");
+			expect(errors).toBe("");
 		} finally {
 			rl.close();
 			input.destroy();
@@ -326,6 +344,34 @@ describe("terminal logout", () => {
 		expect(storage.credentials.list("anthropic")[0].id).toBe(row.id);
 		expect(errors).toContain("Could not delete the stored credential");
 		expect(output).not.toContain("Removed");
+		expect(refresh).not.toHaveBeenCalled();
+		for (const secret of [ACCESS, REFRESH, API_KEY]) expect(output + errors).not.toContain(secret);
+	});
+
+	test("older broker deletion support is actionable without reporting a missing or removed credential", async () => {
+		await storage.credentials.set("anthropic", oauth({ accountId: "retained" }));
+		const row = storage.credentials.list("anthropic")[0];
+		options.storageLocation = "auth broker";
+		const fetchImpl: typeof fetch = Object.assign(
+			async () => Response.json({ error: `${ACCESS} ${REFRESH} ${API_KEY}` }, { status: 404 }),
+			{ preconnect: fetch.preconnect },
+		);
+		const client = new AuthBrokerClient({ url: "http://127.0.0.1:9", token: "unused", fetchImpl });
+		remove.mockImplementation(async () => {
+			try {
+				return (await client.deleteCredential(row.id)).ok;
+			} catch (error) {
+				if (error instanceof Error) error.message = `${ACCESS} ${REFRESH} ${API_KEY}`;
+				throw error;
+			}
+		});
+		expect(await runLogoutFlow("anthropic", "retained", options)).toBe(1);
+		expect(storage.credentials.list("anthropic").map(row => row.id)).toEqual([row.id]);
+		expect(await storage.credentials.listDisabled("anthropic")).toEqual([]);
+		expect(errors).toContain("does not support permanent credential deletion");
+		expect(errors).toContain("Update the broker");
+		expect(output).not.toContain("Removed");
+		expect(errors).not.toContain("no longer stored");
 		expect(refresh).not.toHaveBeenCalled();
 		for (const secret of [ACCESS, REFRESH, API_KEY]) expect(output + errors).not.toContain(secret);
 	});

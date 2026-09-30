@@ -66,6 +66,7 @@ test("terminal logout reports failed real discovery after deletion without leaki
 		try {
 			await after.credentials.reload();
 			expect(after.credentials.list("logout-probe")).toEqual([]);
+			expect(await after.credentials.listDisabled("logout-probe")).toEqual([]);
 		} finally {
 			after.close();
 		}
