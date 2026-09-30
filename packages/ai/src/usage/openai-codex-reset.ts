@@ -147,6 +147,29 @@ export async function listCodexResetCredits(auth: CodexResetAuth): Promise<Codex
 	return { credits, availableCount };
 }
 
+/** Undated or malformed expiries rank after dated credits. */
+function codexResetCreditExpiry(credit: CodexResetCredit): number {
+	const expiry = credit.expiresAt ? Date.parse(credit.expiresAt) : Number.NaN;
+	return Number.isNaN(expiry) ? Number.POSITIVE_INFINITY : expiry;
+}
+
+/** Only an available, unexpired credit with no redemption underway can be spent. */
+export function isCodexResetCreditUsable(credit: CodexResetCredit, nowMs = Date.now()): boolean {
+	return (
+		(credit.status ?? "available") === "available" &&
+		!credit.redeemStartedAt &&
+		!credit.redeemedAt &&
+		codexResetCreditExpiry(credit) > nowMs
+	);
+}
+
+/** Usable Codex inventory in expiry order for manual selection. */
+export function getUsableCodexResetCredits<T extends CodexResetCredit>(credits: readonly T[], nowMs = Date.now()): T[] {
+	return credits
+		.filter(credit => isCodexResetCreditUsable(credit, nowMs))
+		.sort((left, right) => codexResetCreditExpiry(left) - codexResetCreditExpiry(right));
+}
+
 /**
  * Pick the credit to spend: the available one that expires soonest.
  *
@@ -161,8 +184,8 @@ export function pickSoonestExpiringCredit(credits: readonly CodexResetCredit[]):
 	let undated: CodexResetCredit | undefined;
 	for (const credit of credits) {
 		if ((credit.status ?? "available") !== "available") continue;
-		const expiry = credit.expiresAt ? Date.parse(credit.expiresAt) : Number.NaN;
-		if (Number.isNaN(expiry)) {
+		const expiry = codexResetCreditExpiry(credit);
+		if (!Number.isFinite(expiry)) {
 			undated ??= credit;
 			continue;
 		}
