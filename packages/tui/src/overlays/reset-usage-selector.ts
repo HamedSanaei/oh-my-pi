@@ -1,5 +1,4 @@
 import type { UsageResetCredit, UsageResetCreditDetail } from "@oh-my-pi/pi-ai";
-import { getUsableCodexResetCredits, pickSoonestExpiringCredit } from "@oh-my-pi/pi-ai/usage/openai-codex-reset";
 import { Container, matchesKey, ScrollView, Spacer, Text, TruncatedText } from "../index";
 import { formatDuration, sanitizeText } from "@oh-my-pi/pi-utils";
 import { theme } from "../theme/theme";
@@ -69,8 +68,14 @@ export interface ResetUsageAccount {
 	unavailableReason?: string;
 	expiresAt?: string;
 	credit?: UsageResetCreditDetail;
-	/** Codex's usable saved credits; Claude keeps its provider-selected grant. */
+	/** Codex's usable credits in expiry order; target, credit and expiresAt already match the selected credit. */
 	credits?: readonly UsageResetCredit[];
+}
+
+function canCycleCredits(
+	account: ResetUsageAccount | undefined,
+): account is ResetUsageAccount & { credits: readonly UsageResetCredit[] } {
+	return account?.provider === "openai-codex" && account.redeemableCount > 0 && (account.credits?.length ?? 0) > 1;
 }
 
 /**
@@ -93,20 +98,11 @@ export class ResetUsageSelectorComponent extends OverlayPanel {
 		this.#onSelectCallback = onSelect;
 		this.#onCancelCallback = onCancel;
 		// Own the selection state: never mutate the caller's account rows or targets.
-		accounts = accounts.map(account => {
-			const row = { ...account, target: { ...account.target } };
-			if (row.provider !== "openai-codex") return row;
-			const credits = getUsableCodexResetCredits(row.credits ?? []);
-			const credit = row.target.creditId
-				? credits.find(candidate => candidate.id === row.target.creditId)
-				: pickSoonestExpiringCredit(credits);
-			row.credits = credits;
-			row.credit = credit;
-			row.expiresAt = credit?.expiresAt;
-			row.redeemableCount = credit ? Math.min(row.redeemableCount, credits.length) : 0;
-			row.target.creditId = credit?.id;
-			return row;
-		});
+		accounts = accounts.map(account => ({
+			...account,
+			target: { ...account.target },
+			...(account.credits ? { credits: [...account.credits] } : {}),
+		}));
 		const firstRedeemable = accounts.find(account => account.redeemableCount > 0);
 		const accountKey = (account: ResetUsageAccount) => `${account.provider}:${account.target.credentialId}`;
 		this.#menu = new MenuSelection<ResetUsageAccount>(
@@ -127,6 +123,7 @@ export class ResetUsageSelectorComponent extends OverlayPanel {
 	#updateList(): void {
 		this.#nativeRoot = undefined;
 		this.#nativeItems = undefined;
+		this.#nativeHints = undefined;
 		this.#listContainer.clear();
 
 		const items = this.#menu.visibleItems;
@@ -182,11 +179,14 @@ export class ResetUsageSelectorComponent extends OverlayPanel {
 		if (creditDetails) this.#listContainer.addChild(new Text(theme.fg("muted", creditDetails), 0, 0));
 
 		const pending = items.find(item => this.#menu.isPending(item));
+		const cycleHint = canCycleCredits(this.#menu.selectedItem)
+			? `${formatKeyHint("tab")}/${formatKeyHint("shift+tab")} Codex reset · `
+			: "";
 		const hint = pending
 			? theme.fg("warning", oneLine(this.#confirmationMessage(pending)))
 			: theme.fg(
 					"muted",
-					`${editorKeys("tui.select.up", "tui.select.down")} select · ${formatKeyHint("tab")}/${formatKeyHint("shift+tab")} Codex reset · ${formatKeyHint("enter")} spend a reset · ${editorKey("tui.select.cancel")} cancel`,
+					`${editorKeys("tui.select.up", "tui.select.down")} select · ${cycleHint}${formatKeyHint("enter")} spend a reset · ${editorKey("tui.select.cancel")} cancel`,
 				);
 		this.#listContainer.addChild(new Text(hint, 0, 0));
 
@@ -207,9 +207,8 @@ export class ResetUsageSelectorComponent extends OverlayPanel {
 
 	#cycleCredit(direction: -1 | 1): void {
 		const account = this.#menu.selectedItem;
-		if (account?.provider !== "openai-codex" || account.redeemableCount <= 0) return;
+		if (!canCycleCredits(account)) return;
 		const credits = account.credits;
-		if (!credits || credits.length < 2) return;
 		const index = credits.findIndex(credit => credit.id === account.target.creditId);
 		const credit = credits[(index + direction + credits.length) % credits.length]!;
 		this.#menu.cancelConfirmation();
@@ -333,7 +332,9 @@ export class ResetUsageSelectorComponent extends OverlayPanel {
 				? text([span(oneLine(this.#confirmationMessage(pending)), "warning")])
 				: (this.#nativeHints ??= hintsRow([
 						actionHint(["tui.select.up", "tui.select.down"], "select"),
-						{ keys: ["tab", "shift+tab"], label: "Codex reset" },
+						canCycleCredits(this.#menu.selectedItem)
+							? { keys: ["tab", "shift+tab"], label: "Codex reset" }
+							: undefined,
 						{ keys: ["enter"], label: "spend a reset" },
 						actionHint("tui.select.cancel", "cancel"),
 					])),

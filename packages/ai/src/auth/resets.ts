@@ -4,9 +4,9 @@ import type { UsageReport } from "../usage";
 import { claudeResetClearedBlockScopes, consumeClaudeResetCredit, listClaudeResetCredits } from "../usage/claude-reset";
 import {
 	consumeCodexResetCredit,
+	getUsableCodexResetCredits,
 	isCodexResetCreditUsable,
 	listCodexResetCredits,
-	pickSoonestExpiringCredit,
 } from "../usage/openai-codex-reset";
 import type { CredentialBlocks } from "./blocks";
 import { providerTypeKey } from "./blocks";
@@ -261,9 +261,7 @@ export class ResetCredits implements ResetsApi {
 				}
 			} else {
 				const nowMs = Date.now();
-				const credit = pickSoonestExpiringCredit(
-					list.credits.filter(candidate => isCodexResetCreditUsable(candidate, nowMs)),
-				);
+				const credit = getUsableCodexResetCredits(list.credits, nowMs)[0];
 				if (list.availableCount < 1 || !credit) return { ...identity, ok: false, code: "no_credit" };
 				creditId = credit.id;
 			}

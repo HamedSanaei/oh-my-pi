@@ -3,7 +3,7 @@
  * live per-account reset-credit status into selector rows, and map a redeem
  * outcome code to a human message.
  */
-import { getUsableCodexResetCredits, pickSoonestExpiringCredit } from "@oh-my-pi/pi-ai/usage/openai-codex-reset";
+import { getUsableCodexResetCredits } from "@oh-my-pi/pi-ai/usage/openai-codex-reset";
 import type { ResetCreditAccountStatus, ResetCreditRedeemOutcome, ResetCreditTarget } from "../../session/auth-storage";
 import type { ResetUsageAccount } from "@oh-my-pi/pi-tui/overlays/reset-usage-selector";
 import { summarizeUsageResetCredits } from "@oh-my-pi/pi-tui/overlays/usage-display";
@@ -19,8 +19,8 @@ export function formatResetProviderName(provider: string): string {
 }
 
 /**
- * Map live per-account reset status to selector rows. Sorted with the active
- * account first, then most-credits, then label.
+ * Normalize live per-account reset status to selector rows, owning Codex usable
+ * inventory, default pin and metadata. Sort active accounts first, then by balance.
  */
 export function toResetUsageAccounts(statuses: ResetCreditAccountStatus[]): ResetUsageAccount[] {
 	return statuses
@@ -30,7 +30,7 @@ export function toResetUsageAccounts(statuses: ResetCreditAccountStatus[]): Rese
 			const credits = provider === CODEX_PROVIDER_ID ? getUsableCodexResetCredits(status.credits) : undefined;
 			const credit =
 				credits !== undefined
-					? pickSoonestExpiringCredit(credits)
+					? credits[0]
 					: status.nextCreditId
 						? status.credits.find(candidate => candidate.id === status.nextCreditId)
 						: (status.credits.find(candidate => candidate.usable !== false) ?? status.credits[0]);

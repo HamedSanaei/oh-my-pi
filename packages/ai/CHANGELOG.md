@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- Codex saved-reset redemption revalidates the exact selected credit and spends nothing if it is no longer usable, rather than changing the user's selection.
+- Codex saved-reset redemption revalidates the exact selected credit and spends nothing if it is no longer usable, rather than changing the user's selection ([#13900](https://github.com/can1357/oh-my-pi/pull/13900) by [@HamedSanaei](https://github.com/HamedSanaei)).
 - Auth gateway checks for configured bearer tokens in URLs or forwarded/logged headers only after authentication; unauthorized requests use socket peers and redact unknown paths. Authenticated requests with misplaced tokens are rejected before provider dispatch ([#13827](https://github.com/can1357/oh-my-pi/pull/13827) by [@shawnkoh](https://github.com/shawnkoh)).
 
 ## [18.4.4] - 2026-09-29
