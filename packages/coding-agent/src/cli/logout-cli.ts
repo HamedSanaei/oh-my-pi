@@ -188,7 +188,10 @@ export async function runLogoutCommand(provider: string | undefined, account: st
 			isKnownProvider: id =>
 				registry.hasProvider(id) || oauthProviders.some(info => info.id === id || info.storeCredentialsAs === id),
 			resolveProvider: id => oauthProviders.find(info => info.id === id)?.storeCredentialsAs ?? id,
-			refreshProvider: (id, mode) => registry.refreshProvider(id, mode),
+			refreshProvider: async (id, mode) => {
+				await registry.refreshProvider(id, mode);
+				if (registry.getProviderDiscoveryState(id)?.error) throw new Error("Provider model discovery failed.");
+			},
 			pickIndex: (title, labels) => pickIndex(terminal, title, labels),
 			promptLine: question => promptLine(terminal, question),
 			stdout: text => process.stdout.write(text),

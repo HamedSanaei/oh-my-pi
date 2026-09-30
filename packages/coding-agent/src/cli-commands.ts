@@ -18,7 +18,6 @@ import {
 	VALUELESS_FLAGS,
 } from "./cli/flag-tables";
 import type * as LaunchHelp from "./commands/launch-help";
-import Logout from "./commands/logout";
 
 function loadLaunchHelp(): typeof LaunchHelp.launchHelp {
 	const module: typeof LaunchHelp = require("./commands/launch-help");
@@ -163,7 +162,7 @@ export const commands: CommandEntry[] = [
 	},
 	{
 		name: "logout",
-		load: async () => Logout,
+		load: () => import("./commands/logout").then(m => m.default),
 		help: commandHelp.logoutHelp,
 	},
 	{
