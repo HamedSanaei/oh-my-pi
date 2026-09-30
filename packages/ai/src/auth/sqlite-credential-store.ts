@@ -1245,6 +1245,7 @@ export class SqliteAuthCredentialStore implements AuthCredentialStore {
 			if (credential?.type === "oauth") {
 				if (credential.email) summary.email = credential.email;
 				if (credential.accountId) summary.accountId = credential.accountId;
+				if (credential.projectId) summary.projectId = credential.projectId;
 				if (credential.orgId) summary.orgId = credential.orgId;
 				if (credential.orgName) summary.orgName = credential.orgName;
 			}
@@ -1477,13 +1478,11 @@ export class SqliteAuthCredentialStore implements AuthCredentialStore {
 	}
 
 	async deleteAuthCredential(id: number, disabledCause: string): Promise<boolean> {
-		try {
-			const result = this.#deleteStmt.run(normalizeDisabledCause(disabledCause), id);
-			return result.changes > 0;
-		} catch {
-			// Ignore delete failures
-			return false;
-		}
+		const result =
+			disabledCause === "deleted by user"
+				? this.#hardDeleteStmt.run(id)
+				: this.#deleteStmt.run(normalizeDisabledCause(disabledCause), id);
+		return result.changes > 0;
 	}
 
 	/**

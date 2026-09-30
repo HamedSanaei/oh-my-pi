@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test, vi } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -11,6 +11,7 @@ import {
 } from "@oh-my-pi/pi-ai";
 import {
 	AuthBrokerClient,
+	AuthBrokerError,
 	type AuthBrokerServerHandle,
 	RemoteAuthCredentialStore,
 	startAuthBroker,
@@ -45,6 +46,7 @@ describe("disabled credential tombstones", () => {
 
 	afterEach(async () => {
 		storage?.close();
+		vi.restoreAllMocks();
 		await removeWithRetries(tempDir);
 	});
 
@@ -83,6 +85,61 @@ describe("disabled credential tombstones", () => {
 		expect(await store!.deleteAuthCredential(row.id, "original cause")).toBe(true);
 		expect(await store!.deleteAuthCredential(row.id, "later cause")).toBe(false);
 		expect((await store!.listDisabledCredentials("anthropic"))[0]?.cause).toBe("original cause");
+	});
+
+	test("removeById permanently removes a disabled identity without refreshing or probing it", async () => {
+		const provider = "test-logout-account";
+		const refresh = vi.fn(async () => {
+			throw new Error("unexpected OAuth refresh");
+		});
+		const fetchUsage = vi.fn(async () => {
+			throw new Error("unexpected account authentication");
+		});
+		const guardedStorage = new AuthStorage(store!, { refreshOAuthCredential: refresh });
+		guardedStorage.usage.setProvider(provider, {
+			id: provider,
+			supports: () => true,
+			fetchUsage,
+		});
+		await store!.saveOAuth(provider, {
+			...mintOAuth("disabled@example.test"),
+			expires: 0,
+			projectId: "project-disabled",
+		});
+		const row = store!.listAuthCredentials(provider)[0]!;
+		expect(await store!.deleteAuthCredential(row.id, DISABLE_CAUSE)).toBe(true);
+		await guardedStorage.credentials.reload();
+		expect(await guardedStorage.credentials.listDisabled(provider)).toEqual([
+			expect.objectContaining({ id: row.id, projectId: "project-disabled", cause: DISABLE_CAUSE }),
+		]);
+
+		expect(await guardedStorage.credentials.removeById(`${provider}-other`, row.id)).toBe(false);
+		expect(await guardedStorage.credentials.removeById(provider, Number.MAX_SAFE_INTEGER)).toBe(false);
+		expect(await guardedStorage.credentials.removeById(provider, row.id)).toBe(true);
+		expect(await guardedStorage.credentials.listDisabled(provider)).toEqual([]);
+		expect(await guardedStorage.credentials.removeById(provider, row.id)).toBe(false);
+		expect(guardedStorage.credentials.list(provider)).toEqual([]);
+		expect(await guardedStorage.usage.reports()).toEqual([]);
+		expect(refresh).not.toHaveBeenCalled();
+		expect(fetchUsage).not.toHaveBeenCalled();
+		guardedStorage.close();
+	});
+
+	test("removeById surfaces persistence failures and leaves the active pool unchanged", async () => {
+		await storage!.credentials.set("test-logout-account", mintOAuth("kept@example.test"));
+		const before = storage!.credentials.list();
+		const failure = new Error("database locked");
+		vi.spyOn(store!, "deleteAuthCredential").mockRejectedValueOnce(failure);
+		await expect(storage!.credentials.removeById(before[0]!.provider, before[0]!.id)).rejects.toThrow(failure);
+		expect(storage!.credentials.list()).toEqual(before);
+		expect(store!.listAuthCredentials()).toEqual(before);
+	});
+
+	test("sqlite removal rejects database failures instead of reporting a missing row", async () => {
+		await store!.saveOAuth("test-logout-account", mintOAuth("closed@example.test"));
+		const id = store!.listAuthCredentials()[0]!.id;
+		store!.close();
+		await expect(store!.deleteAuthCredential(id, "deleted by user")).rejects.toThrow();
 	});
 
 	test("client maps a broker without the endpoint (404) to an empty list", async () => {
@@ -126,6 +183,7 @@ describe("broker /v1/credentials/disabled round-trip", () => {
 		clientStorage?.close();
 		await handle?.close();
 		serverStorage?.close();
+		vi.restoreAllMocks();
 		await removeWithRetries(tempDir);
 	});
 
@@ -144,6 +202,89 @@ describe("broker /v1/credentials/disabled round-trip", () => {
 			cause: DISABLE_CAUSE,
 		});
 		expect(JSON.stringify(disabled[0])).not.toContain("refresh-gone");
+	});
+
+	test("remote removal hard-deletes exactly one active row and preserves its sibling", async () => {
+		await serverStorage!.credentials.set("test-logout-account", [
+			mintOAuth("first@example.test"),
+			mintOAuth("sibling@example.test"),
+		]);
+		await clientStorage!.credentials.revalidate();
+		const [target, sibling] = clientStorage!.credentials.list("test-logout-account");
+		expect(await clientStorage!.credentials.removeById("test-logout-account-other", target.id)).toBe(false);
+		expect(await clientStorage!.credentials.removeById("test-logout-account", target.id)).toBe(true);
+		expect(clientStorage!.credentials.list("test-logout-account")).toEqual([sibling]);
+		expect(serverStore!.listAuthCredentials("test-logout-account").map(entry => entry.id)).toEqual([sibling.id]);
+		expect(await clientStorage!.credentials.listDisabled("test-logout-account")).toEqual([]);
+		expect(await clientStorage!.credentials.removeById("test-logout-account", target.id)).toBe(false);
+	});
+
+	test("remote removal deletes tombstones with no OAuth refresh or account authentication", async () => {
+		const provider = "test-logout-account";
+		const refresh = vi.fn(async () => {
+			throw new Error("unexpected OAuth refresh");
+		});
+		const fetchUsage = vi.fn(async () => {
+			throw new Error("unexpected account authentication");
+		});
+		vi.spyOn(serverStorage!.oauth, "refresh").mockImplementation(refresh);
+		serverStorage!.usage.setProvider(provider, { id: provider, supports: () => true, fetchUsage });
+		await serverStore!.saveOAuth(provider, {
+			...mintOAuth("expired@example.test"),
+			expires: 0,
+			projectId: "project-remote",
+		});
+		const row = serverStore!.listAuthCredentials(provider)[0]!;
+		await serverStore!.deleteAuthCredential(row.id, DISABLE_CAUSE);
+		// The tombstone never existed in either in-memory active pool.
+		expect(clientStorage!.credentials.list(provider)).toEqual([]);
+		expect(await clientStorage!.credentials.listDisabled(provider)).toEqual([
+			expect.objectContaining({ id: row.id, projectId: "project-remote" }),
+		]);
+		expect(await clientStorage!.credentials.removeById(`${provider}-other`, row.id)).toBe(false);
+		expect(await clientStorage!.credentials.removeById(provider, row.id)).toBe(true);
+		expect(await serverStorage!.credentials.listDisabled(provider)).toEqual([]);
+		expect(await clientStorage!.credentials.listDisabled(provider)).toEqual([]);
+		expect(await clientStorage!.usage.reports()).toEqual([]);
+		expect(refresh).not.toHaveBeenCalled();
+		expect(fetchUsage).not.toHaveBeenCalled();
+
+		const client = new AuthBrokerClient({ url: handle!.url, token });
+		await expect(client.disableCredential(row.id, "deleted by user")).rejects.toMatchObject({ status: 404 });
+	});
+
+	test("a broker 404 after a concurrent removal is false, not remote success", async () => {
+		await serverStorage!.credentials.set("test-logout-account", mintOAuth("raced@example.test"));
+		const remote = new RemoteAuthCredentialStore({
+			client: new AuthBrokerClient({ url: handle!.url, token }),
+			streamSnapshots: false,
+		});
+		try {
+			await remote.refreshSnapshot();
+			const row = remote.listAuthCredentials("test-logout-account")[0]!;
+			expect(await serverStorage!.credentials.removeById(row.provider, row.id)).toBe(true);
+			expect(await remote.deleteAuthCredential(row.id, "deleted by user")).toBe(false);
+		} finally {
+			remote.close();
+		}
+	});
+
+	test("remote removal propagates non-404 broker failures", async () => {
+		await serverStorage!.credentials.set("test-logout-account", mintOAuth("kept@example.test"));
+		const client = new AuthBrokerClient({ url: handle!.url, token });
+		const remote = new RemoteAuthCredentialStore({ client, streamSnapshots: false });
+		try {
+			await remote.refreshSnapshot();
+			const row = remote.listAuthCredentials("test-logout-account")[0]!;
+			vi.spyOn(client, "disableCredential").mockRejectedValueOnce(
+				new AuthBrokerError("broker unavailable", { status: 503 }),
+			);
+			await expect(remote.deleteAuthCredential(row.id, "deleted by user")).rejects.toMatchObject({ status: 503 });
+			expect(remote.listAuthCredentials("test-logout-account")).toEqual([row]);
+			expect(serverStore!.listAuthCredentials("test-logout-account").map(entry => entry.id)).toEqual([row.id]);
+		} finally {
+			remote.close();
+		}
 	});
 
 	test("revalidateCredentials re-hydrates broker-side identity changes past a stale snapshot", async () => {

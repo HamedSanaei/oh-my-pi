@@ -778,7 +778,18 @@ export function startAuthBroker(opts: AuthBrokerServerOptions): AuthBrokerServer
 					if (!parsed.ok) return parsed.response;
 					const cause =
 						parsed.data.cause && parsed.data.cause.length > 0 ? parsed.data.cause : "disabled via auth-broker";
-					const ok = await opts.storage.credentials.disable(id, cause);
+					let ok: boolean;
+					if (cause === "deleted by user") {
+						await opts.storage.credentials.revalidate();
+						const active = opts.storage.credentials.list().find(entry => entry.id === id);
+						const provider =
+							active?.provider ??
+							(await opts.storage.credentials.listDisabled(undefined, req.signal)).find(entry => entry.id === id)
+								?.provider;
+						ok = provider !== undefined && (await opts.storage.credentials.removeById(provider, id));
+					} else {
+						ok = await opts.storage.credentials.disable(id, cause);
+					}
 					if (!ok) {
 						logger.info("auth-broker disable miss", { id, peer, cause });
 						return json(404, { error: `No credential with id=${id}` });

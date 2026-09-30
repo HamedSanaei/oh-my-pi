@@ -49,6 +49,19 @@ Use the interactive slash commands inside a session:
 
 Outside a session, `omp login [<provider>]` runs the same login from the terminal: it prints the auth URL (and opens it in your browser), reads any prompts from stdin, and saves to the same store sessions use — local `agent.db`, or the configured auth broker. Without a provider it shows a numbered picker.
 
+Outside a session, `omp logout [provider] [account]` removes **one stored credential**, using the same local store or configured auth broker as `/logout`:
+
+```sh
+omp logout                                 # Pick a stored provider, then an account
+omp logout openai-codex                     # Pick a stored Codex account
+omp logout openai-codex user@example.com    # Select by exact email
+omp logout openai-codex 5                   # Select by exact credential row ID
+```
+
+The account selector also accepts an exact account ID or project ID. Identity matching ignores case and surrounding whitespace, never matches substrings, and is scoped to the selected provider. If an email matches multiple workspaces, nothing is removed: the CLI lists their credential row IDs so you can select one explicitly.
+
+Removal shows the resolved account and row ID before asking `[y/N]`. Empty input, declining, Escape, Ctrl-C, or EOF cancels without deleting anything. Disabled or expired credentials can be removed without refreshing or authenticating that account. After removal, the CLI refreshes the provider's model state and reports any remaining authentication source; environment/config/runtime keys are not removed. If the provider refresh fails, the CLI reports that deletion already succeeded and exits with an error rather than claiming it was rolled back.
+
 For headless or remote setups backed by a shared auth broker, the CLI exposes `omp auth-broker login <provider>` / `omp auth-broker logout` (and `status`, `list`, `import`, `migrate`). See [Secrets and credentials](./secrets.md) for the broker model.
 
 When a model has no credentials, `omp` tells you to run `/login` or set the provider's environment variable.

@@ -122,6 +122,7 @@ export interface DisabledCredentialSummary {
 	type: AuthCredential["type"];
 	email?: string;
 	accountId?: string;
+	projectId?: string;
 	/** Organization/workspace the credential was scoped to (Anthropic/ChatGPT multi-subscription). */
 	orgId?: string;
 	orgName?: string;
@@ -838,7 +839,9 @@ export interface CredentialsApi {
 	 */
 	remove(provider: string): Promise<void>;
 	/**
-	 * Remove one stored credential for a provider.
+	 * Permanently remove one active or disabled stored row for the exact provider.
+	 * Resolves after persistence and the provider's pool update. Returns false
+	 * for a missing ID or provider mismatch; persistence failures reject.
 	 */
 	removeById(provider: string, credentialId: number): Promise<boolean>;
 	/**

@@ -52,8 +52,10 @@ export interface CredentialRowStore {
 	listDisabledCredentials?(provider?: string, signal?: AbortSignal): Promise<DisabledCredentialSummary[]>;
 	updateAuthCredential(id: number, credential: AuthCredential): void;
 	/**
-	 * Disable one active row; return false if it was already absent or disabled.
-	 * Remote stores await broker persistence before updating their snapshot.
+	 * Disable one active row, except "deleted by user" permanently removes an
+	 * active or disabled row. Return false only when no eligible row exists.
+	 * Persistence failures reject; remote stores await broker persistence before
+	 * updating their snapshot.
 	 */
 	deleteAuthCredential(id: number, disabledCause: string): Promise<boolean>;
 	tryDisableAuthCredentialIfMatches(
