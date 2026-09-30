@@ -2,11 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `omp logout [provider] [account]` to remove one stored credential with default-No confirmation, including disabled accounts, and report post-removal provider discovery failures.
+
 ## [18.4.5] - 2026-09-30
 
 ### Added
 
-- Added `omp logout [provider] [account]` to remove one stored credential with default-No confirmation, including disabled accounts, and report post-removal provider discovery failures.
 - Added Factory Droid login and model selection with base credit badges and account-matched regional discovery ([#8577](https://github.com/can1357/oh-my-pi/pull/8577) by [@will-bogusz](https://github.com/will-bogusz), continued in [#13276](https://github.com/can1357/oh-my-pi/pull/13276) by [@DusKing1](https://github.com/DusKing1)).
 - Added `HELMCODE_API_KEY` to the environment variables listed in `omp --help` ([#13630](https://github.com/can1357/oh-my-pi/pull/13630) by [@alexcerezo](https://github.com/alexcerezo)).
 - RPC hosts can send `messageUpdates: "delta"` with `set_event_filter` to receive `message_update` frames without the accumulated message snapshots (`message` shrinks to `{ role }` and `assistantMessageEvent.partial` is omitted); the response echoes the active mode ([#13716](https://github.com/can1357/oh-my-pi/pull/13716) by [@alphastorm](https://github.com/alphastorm))
