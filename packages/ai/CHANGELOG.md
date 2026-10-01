@@ -5,6 +5,7 @@
 ### Fixed
 
 - Account-specific logout now removes disabled stored credentials from usage output, locally and through the auth broker; redacted usage JSON also masks their project IDs ([#13923](https://github.com/can1357/oh-my-pi/pull/13923) by [@HamedSanaei](https://github.com/HamedSanaei)).
+
 ## [18.4.6] - 2026-10-01
 
 ### Fixed
