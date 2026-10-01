@@ -5,6 +5,11 @@
 ### Fixed
 
 - Account-specific logout now removes disabled stored credentials from usage output, locally and through the auth broker; redacted usage JSON also masks their project IDs ([#13923](https://github.com/can1357/oh-my-pi/pull/13923) by [@HamedSanaei](https://github.com/HamedSanaei)).
+## [18.4.6] - 2026-10-01
+
+### Fixed
+
+- Fixed forced tool calls failing for Claude Opus 5.5 and Sonnet 5.5 through Amazon Bedrock, including required-tool retries in plan mode.
 
 ## [18.4.5] - 2026-09-30
 
